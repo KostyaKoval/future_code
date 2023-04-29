@@ -2,6 +2,7 @@
 #include <mutex>
 #include <thread>
 #include <future>
+#include <cstring>
 
 #define THREADS_COUNT   10
 
