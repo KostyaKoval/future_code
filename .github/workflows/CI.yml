@@ -1,0 +1,30 @@
+name: CI
+# Workflow file for windows
+on:
+  push:
+    branches:
+      - master
+  pull_request: {}
+
+jobs:
+  Windows:
+    name: build-windows
+    runs-on: [self-hosted, windows]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v1
+      with:
+          submodules: recursive
+
+    - name: Running cmake (windows)
+      run: |
+        cd ${{ github.workspace }}
+        mkdir build
+        cd build
+        cmake ..
+
+    - name: Build Solution (windows)
+      run: |
+        cd build
+        MSBuild.exe kovkd08_project.sln
