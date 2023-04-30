@@ -3,36 +3,38 @@
 #include <thread>
 #include <future>
 #include <cstring>
+#include <climits>
 
-#define THREADS_COUNT   10
+#define THREADS_COUNT   4
 
 /* Number of elements in single portion for multi-thread execution */
-#define PORTION_SIZE    1000000
+#define PORTION_SIZE    10000000
 
 /* Number of elements in whole array */
 #define ARRAY_SIZE      (PORTION_SIZE * THREADS_COUNT) 
 
 
-/* Function-comparator for usage in qsort() */
-int compare_func(const void* x, const void* y)
+/* Function for execution in separate thread (async) */
+long long task_for_sum(int a_task, int *a_array, int a_size)
 {
-  int cmp = *static_cast<const int*>(x) - *static_cast<const int*>(y);
-  return (cmp < 0) ? -1 : ((cmp > 0) ? 1 : 0);
+  static std::mutex v_mutex;
+  long long v_sum = 0;
+
+  for (int i = 0; i < a_size; i++)
+      v_sum += a_array[i];
+
+  v_mutex.lock();
+  std::cout << "task #" << a_task << "(thread id #" << std::this_thread::get_id() << ") finished, "
+    "sum is " << v_sum << std::endl;
+  v_mutex.unlock();
+
+  return v_sum;
 }
 
-/* Function for execution in separate thread */
-int task_for_max(int a_task, int *a_array, int a_size)
+/* Function for execution in separate thread (thread) */
+void task_for_sum_thread(int a_task, int *a_array, int a_size, long long & v)
 {
-  static std::mutex m_cout;
-
-  qsort(a_array, a_size, sizeof(int), compare_func);
-
-  m_cout.lock();
-  std::cout << "task #" << a_task << "(thread id #" << std::this_thread::get_id() << ") finished, "
-    "maximum is " << a_array[a_size - 1] << std::endl;
-  m_cout.unlock();
-
-  return a_array[a_size - 1];
+  v = task_for_sum(a_task, a_array, a_size);
 }
 
 /* Function for array initializantion (with using random values) */
@@ -41,43 +43,57 @@ static void init_array(int *a_array, int a_size)
   srand((unsigned int) time(NULL));
 
   for (int i = 0; i < a_size; i++)
-    a_array[i] = (int) (rand() * rand());
+    a_array[i] = rand();
 }
 
 int main()
 {
-  int *a1 = new int[ARRAY_SIZE], *a2 = new int[ARRAY_SIZE];
-  int res1, res2;
+  int *a = new int[ARRAY_SIZE];
+  long long res = 0;
   clock_t t1, t2;
 
   /* Initialize test arrays */
-  init_array(a1, ARRAY_SIZE);
-  memcpy(a2, a1, ARRAY_SIZE * sizeof(int));
+  init_array(a, ARRAY_SIZE);
 
-  /* Multi-thread sorting */
+  /* Multi-thread computing (async) */
+  std::future<long long> futures[THREADS_COUNT];
+
   t1 = clock();
-  std::future<int> futures[THREADS_COUNT];
   for (int i = 0; i < THREADS_COUNT; i++)
-    futures[i] = std::async(std::launch::async, task_for_max, i, &a1[i * PORTION_SIZE], PORTION_SIZE);
-
-  int results[THREADS_COUNT];
+    futures[i] = std::async(std::launch::async, task_for_sum, i, &a[i * PORTION_SIZE], PORTION_SIZE);
+  res = 0;
   for (int i = 0; i < THREADS_COUNT; i++)
-    results[i] = futures[i].get();
-
-  qsort(results, THREADS_COUNT, sizeof(int), compare_func);
-  res1 = results[THREADS_COUNT - 1];
+    res += futures[i].get();
   t2 = clock();
-  std::cout << std::endl << THREADS_COUNT << "-thread sorting: " << t2 - t1 << " ticks, result: " << res1 << std::endl;
 
-  /* Single-thread sorting */
+  std::cout << std::endl << THREADS_COUNT << "-thread working (async): " << t2 - t1 << " ticks, result: " << res << std::endl << std::endl;
+
+  /* Multi-thread computing (threads) */
+  std::thread threads[THREADS_COUNT];
+  long long p[THREADS_COUNT];
+
   t1 = clock();
-  qsort(a2, ARRAY_SIZE, sizeof(int), compare_func);
-  res2 = a2[ARRAY_SIZE - 1];
+  for (int i = 0; i < THREADS_COUNT; i++)
+    threads[i] = std::thread(task_for_sum_thread, i, &a[i * PORTION_SIZE], PORTION_SIZE, std::ref(p[i]));
+  for (int i = 0; i < THREADS_COUNT; i++)
+    threads[i].join();
+  res = 0;
+  for (int i = 0; i < THREADS_COUNT; i++)
+    res += p[i];
   t2 = clock();
-  std::cout << std::endl << "1-thread sorting: " << t2 - t1 << " ticks, result: " << res2 << std::endl;
 
-  delete [] a1;
-  delete [] a2;
+  std::cout << std::endl << THREADS_COUNT << "-thread working (threads): " << t2 - t1 << " ticks, result: " << res << std::endl;
+
+  /* Single-thread computing */
+  t1 = clock();
+  res = 0;
+  for (int i = 0; i < ARRAY_SIZE; i++)
+      res += a[i];
+  t2 = clock();
+
+  std::cout << std::endl << "1-thread working: " << t2 - t1 << " ticks, result: " << res << std::endl;
+
+  delete [] a;
 
   return 0;
 }
